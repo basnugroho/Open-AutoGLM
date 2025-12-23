@@ -112,6 +112,44 @@ adb connect 192.168.1.100:5555
 adb devices
 ```
 
+### Remote Debugging via Mobile Hotspot (Recommended)
+
+If your WiFi network has AP Isolation (common in corporate/public networks), use this method:
+
+1. **Enable Mobile Hotspot on your Android phone**
+   - Go to Settings > Connections > Mobile Hotspot and Tethering
+   - Turn on Mobile Hotspot
+
+2. **Connect your computer to the phone's hotspot**
+
+3. **Connect USB temporarily to setup tcpip mode:**
+   ```bash
+   # With USB connected, enable tcpip mode
+   adb tcpip 5555
+   
+   # Get the phone's hotspot IP (usually 192.168.x.x or 10.x.x.x)
+   adb shell ip addr show swlan0 | grep "inet "
+   # Example output: inet 10.131.227.123/24 ...
+   ```
+
+4. **Connect via WiFi and unplug USB:**
+   ```bash
+   # Connect using the hotspot IP
+   adb connect 10.131.227.123:5555
+   # Output: connected to 10.131.227.123:5555
+   
+   # Now you can unplug the USB cable
+   
+   # Verify connection
+   adb devices -l
+   # Should show: 10.131.227.123:5555    device ...
+   ```
+
+**Advantages of Hotspot Method:**
+- No AP Isolation issues
+- Works anywhere without WiFi router access
+- Direct connection between phone and computer
+
 ### Device Management
 
 ```bash
