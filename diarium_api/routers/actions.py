@@ -34,10 +34,17 @@ async def check_in(request: CheckInRequest = None):
     """
     📍 Check-in Attendance
     
-    Melakukan check-in kehadiran di Diarium.
+    Melakukan check-in kehadiran di Diarium dari halaman Beranda.
+    
+    Flow:
+    1. Klik tombol Check In (kanan atas)
+    2. Pilih status kesehatan (Sehat)
+    3. Scroll ke peta, klik Perbarui lokasi
+    4. Pilih WFO → Perjalanan Dinas
+    5. Klik Simpan
     
     Prasyarat:
-    - Sudah login ke aplikasi Diarium
+    - Sudah login dan di halaman Beranda
     """
     hit_time = datetime.now()
     device_id = get_current_device()
@@ -54,6 +61,8 @@ async def check_in(request: CheckInRequest = None):
             hit_time=hit_time
         )
     
+    steps_log = []
+    
     try:
         # Check if logged in
         if not is_logged_in() and not has_beranda_menu():
@@ -67,48 +76,83 @@ async def check_in(request: CheckInRequest = None):
                 device_id=device_id
             )
         
-        # Build task prompt
+        steps_log.append("Starting check-in process...")
+        
+        # Build detailed task prompt
         task = """
-        Lakukan check-in kehadiran di aplikasi Diarium:
-        
-        1. Pastikan kamu di halaman Beranda
-        2. Cari tombol "Check In" atau "Presensi Masuk" atau tombol hijau untuk masuk
-        3. Klik tombol tersebut
-        4. Jika muncul konfirmasi lokasi, klik OK/Confirm
-        5. Jika muncul camera untuk selfie, ambil foto
-        6. Tunggu konfirmasi check-in berhasil
-        
-        Jika check-in berhasil, laporkan STATUS:SUCCESS
-        Jika gagal (sudah check-in, lokasi invalid, dll), laporkan STATUS:FAILED beserta alasannya
-        """
+Lakukan check-in kehadiran di aplikasi Diarium dengan langkah-langkah berikut:
+
+LANGKAH 1: Dari halaman Beranda, cari dan klik tombol "Check In" yang ada di bagian kanan atas layar.
+
+LANGKAH 2: Di halaman Check In, pilih status kesehatan:
+- Klik pilihan "Sehat"
+
+LANGKAH 3: Scroll ke bawah sampai terlihat peta lokasi:
+- Cari dan klik tombol "Perbarui" untuk refresh lokasi GPS
+- Tunggu 2 detik sampai lokasi terupdate
+
+LANGKAH 4: Scroll ke bawah lagi, pilih jenis kehadiran:
+- Klik "WFO" (Work From Office)
+- PENTING: Tunggu 2-3 detik sampai muncul pilihan tambahan di bawahnya!
+- Setelah muncul pilihan "Kantor Utama" dan "Perjalanan Dinas", klik "Perjalanan Dinas"
+
+LANGKAH 5: Scroll ke bawah sampai terlihat tombol "Simpan":
+- Pastikan tombol Simpan sudah aktif (tidak disabled/abu-abu)
+- Klik tombol "Simpan"
+
+LANGKAH 6: Tunggu konfirmasi check-in berhasil.
+
+Jika check-in berhasil dan muncul konfirmasi/kembali ke Beranda, laporkan: STATUS:SUCCESS - Check-in berhasil
+Jika ada error atau gagal, laporkan: STATUS:FAILED - [jelaskan masalahnya]
+Jika sudah pernah check-in hari ini, laporkan: STATUS:ALREADY_CHECKED_IN
+"""
         
         ai_success, ai_message = await run_phone_agent(task)
+        steps_log.append(f"AI result: {ai_message}")
         logger.info(f"[checkin] AI result: success={ai_success}, message={ai_message}")
         
         status, _ = parse_status_response(ai_message)
         duration = (datetime.now() - hit_time).total_seconds()
         
-        if status == "success" or ai_success:
+        # Determine success
+        is_success = status == "success" or ai_success or "berhasil" in ai_message.lower()
+        
+        if is_success:
             logger.info(f"[checkin] ✅ Success - duration: {duration:.2f}s")
+            return create_response(
+                success=True,
+                status=StatusCode.SUCCESS,
+                message="Check-in berhasil",
+                data={
+                    "steps": steps_log,
+                    "ai_message": ai_message,
+                    "duration_seconds": duration
+                },
+                hit_time=hit_time,
+                device_id=device_id
+            )
         else:
             logger.warning(f"[checkin] ❌ Failed - duration: {duration:.2f}s, message: {ai_message}")
-        
-        return create_response(
-            success=status == "success" or ai_success,
-            status=StatusCode.SUCCESS if (status == "success" or ai_success) else StatusCode.ERROR,
-            message=ai_message,
-            data={"ai_success": ai_success, "ai_message": ai_message},
-            hit_time=hit_time,
-            device_id=device_id
-        )
+            return create_response(
+                success=False,
+                status=StatusCode.ERROR,
+                message=ai_message,
+                data={
+                    "steps": steps_log,
+                    "ai_message": ai_message
+                },
+                hit_time=hit_time,
+                device_id=device_id
+            )
         
     except Exception as e:
+        steps_log.append(f"Error: {str(e)}")
         logger.exception(f"[checkin] Exception: {str(e)}")
         return create_response(
             success=False,
             status=StatusCode.ERROR,
             message=f"Check-in error: {str(e)}",
-            data=None,
+            data={"steps": steps_log},
             hit_time=hit_time,
             device_id=device_id
         )
